@@ -79,6 +79,7 @@ export class ReadingHighlighter {
   private passage: SourceRange | null = null;
   private wordMatcher?: SourceMatcher;
   private currentPassageText = "";
+  private painted = false;
 
   constructor(private app: App) {}
 
@@ -129,6 +130,7 @@ export class ReadingHighlighter {
     }
     this.currentPassageText = spokenPassage;
     this.passage = this.matcher.find(tokenizeSpoken(spokenPassage));
+    this.painted = this.painted || this.passage !== null;
     this.wordMatcher = this.passage
       ? new SourceMatcher(this.source.slice(this.passage.from, this.passage.to))
       : undefined;
@@ -159,6 +161,7 @@ export class ReadingHighlighter {
     this.passage = null;
     this.wordMatcher = undefined;
     this.currentPassageText = "";
+    this.painted = false;
     activeDocument.body.removeClass("voice-is-reading");
     this.render();
   }
@@ -169,9 +172,9 @@ export class ReadingHighlighter {
     this.currentPassageText = "";
   }
 
-  /** Whether a reading pass is active and able to resolve positions. */
+  /** Whether a reading pass is running *and* has actually highlighted something. */
   get isActive(): boolean {
-    return !!this.matcher;
+    return !!this.matcher && this.painted;
   }
 
   private render(

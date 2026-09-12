@@ -53,12 +53,20 @@ export class PreviewHighlighter {
   private warnedUnsupported = false;
   private pendingRetry?: number;
   private indexDirty = true;
+  private painted = false;
   private observer?: MutationObserver;
   private relocateTimer?: number;
 
-  /** True once a reading pass has a rendered container to work against. */
+  /**
+   * True only once a highlight has actually been painted.
+   *
+   * Finding a container is not the same as working: Reading view populates
+   * lazily, so the first attempt can land on an element that has no text in it
+   * yet. Reporting "active" then left the caller with nothing to retry, and the
+   * highlight only appeared after something else happened to reset the state.
+   */
   get isActive(): boolean {
-    return !!this.container;
+    return !!this.container && this.painted;
   }
 
   /**
@@ -87,6 +95,7 @@ export class PreviewHighlighter {
     this.passageRange = null;
     this.currentPassage = "";
     this.indexDirty = true;
+    this.painted = false;
 
     // Reading view mounts and unmounts sections as you scroll. That invalidates
     // both the offsets and any Range already handed to the highlight registry —
@@ -176,6 +185,7 @@ export class PreviewHighlighter {
     this.passageRange = null;
     this.currentPassage = "";
     this.indexDirty = true;
+    this.painted = false;
   }
 
   /** A seek moved backwards; let the next search start from the top again. */
@@ -213,6 +223,7 @@ export class PreviewHighlighter {
 
     this.passageRange = found;
     this.wordMatcher = undefined;
+    this.painted = true;
     registry.set(PASSAGE_HIGHLIGHT, new Highlight(range));
     registry.delete(WORD_HIGHLIGHT);
     this.scrollTo(range, "center");

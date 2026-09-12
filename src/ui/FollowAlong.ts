@@ -22,8 +22,20 @@ export class FollowAlongHighlighter {
     this.preview = new PreviewHighlighter();
   }
 
+  /**
+   * Active means "a highlight has actually appeared", not merely "setup ran".
+   * The caller retries while inactive, and treating a silent failure as active
+   * is what left a whole note reading with nothing highlighted until something
+   * unrelated — opening the player — happened to reset the state.
+   */
   get isActive(): boolean {
-    return this.mode !== null;
+    if (this.mode === "editor") {
+      return this.editor.isActive;
+    }
+    if (this.mode === "preview") {
+      return this.preview.isActive;
+    }
+    return false;
   }
 
   start(): void {
