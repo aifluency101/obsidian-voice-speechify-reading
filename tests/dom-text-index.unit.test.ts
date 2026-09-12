@@ -60,3 +60,20 @@ describe("Unit Tests - DOM text index", () => {
     }
   });
 });
+
+describe("Unit Tests - cross-section ranges", () => {
+  test("locateOffset resolves both ends independently", () => {
+    // rangeAcross needs a DOM, but its inputs are two independent lookups —
+    // that each index resolves on its own is what makes spanning safe.
+    const a: TextIndex<FakeNode> = {
+      text: "Amazon",
+      entries: [{ node: { id: "h1" }, start: 0, end: 6 }],
+    };
+    const b: TextIndex<FakeNode> = {
+      text: "Discussed at length",
+      entries: [{ node: { id: "p" }, start: 0, end: 19 }],
+    };
+    expect(locateOffset(a, 0)).toEqual({ node: { id: "h1" }, offset: 0 });
+    expect(locateOffset(b, 19)).toEqual({ node: { id: "p" }, offset: 19 });
+  });
+});

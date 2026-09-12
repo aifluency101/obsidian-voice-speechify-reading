@@ -147,3 +147,34 @@ export function rangeFromOffsets(
   }
   return range.collapsed ? null : range;
 }
+
+/**
+ * A Range spanning two different rendered sections.
+ *
+ * Obsidian renders each block as its own element, but a spoken passage is a few
+ * hundred characters and routinely runs across several of them — a heading and
+ * the paragraphs under it, say. A Range may start in one element and end in
+ * another as long as they share an ancestor, which sections of a note do.
+ */
+export function rangeAcross(
+  startIndex: TextIndex,
+  startOffset: number,
+  endIndex: TextIndex,
+  endOffset: number,
+): Range | null {
+  const start = locateOffset(startIndex, startOffset);
+  const end = locateOffset(endIndex, endOffset);
+  if (!start || !end) {
+    return null;
+  }
+  const range = start.node.ownerDocument.createRange();
+  try {
+    range.setStart(start.node, start.offset);
+    range.setEnd(end.node, end.offset);
+  } catch {
+    return null;
+  }
+  // setEnd before setStart in document order throws or collapses; either way
+  // there is nothing sensible to paint.
+  return range.collapsed ? null : range;
+}

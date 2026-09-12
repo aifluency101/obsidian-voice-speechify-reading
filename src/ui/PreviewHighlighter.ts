@@ -1,6 +1,6 @@
 import { MarkdownView, Notice } from "obsidian";
 import { SourceMatcher, tokenizeSpoken } from "../utils/sourceWords";
-import { buildTextIndex, rangeFromOffsets } from "./domTextIndex";
+import { buildTextIndex, rangeAcross, rangeFromOffsets } from "./domTextIndex";
 import { lineOfOffset, type PreviewSectionRegistry } from "./previewSections";
 import type { FollowAlongDiagnostics } from "../utils/followAlongDiagnostics";
 
@@ -197,48 +197,69 @@ export class PreviewHighlighter {
       return;
     }
 
-    // 2. Which rendered section did Obsidian build that line into?
-    const line = lineOfOffset(this.source, inSource.from);
-    const element = this.sections.elementForLine(this.sourcePath, line);
-    if (!element) {
+    // 2. Which rendered sections did Obsidian build those lines into?
+    //
+    // A passage is a few hundred characters and routinely spans several blocks
+    // — a heading and the paragraphs under it. Highlighting only the block the
+    // passage starts in marks a heading and nothing else, and looks frozen for
+    // every passage that starts in the same block.
+    const startLine = lineOfOffset(this.source, inSource.from);
+    const endLine = lineOfOffset(
+      this.source,
+      Math.max(inSource.from, inSource.to - 1),
+    );
+    const startElement = this.sections.elementForLine(
+      this.sourcePath,
+      startLine,
+    );
+    const endElement =
+      this.sections.elementForLine(this.sourcePath, endLine) ?? startElement;
+    if (!startElement || !endElement) {
       this.diagnostics.record(
         "locate",
-        `line ${line} not in any rendered section (sections=${this.sections.sections(this.sourcePath).length})`,
+        `lines ${startLine}-${endLine} not in any rendered section (sections=${this.sections.sections(this.sourcePath).length})`,
       );
-      // Not rendered (or not on screen). Leave the note alone rather than
-      // highlighting the wrong thing; the next passage will try again.
       this.clearHighlights(registry);
       return;
     }
 
-    // 3. Find the passage inside that one section and paint it.
-    const index = buildTextIndex(element);
+    // 3. Trim to where the passage actually begins and ends inside them.
     const spoken = tokenizeSpoken(spokenPassage);
-    let within = new SourceMatcher(index.text).find(spoken);
-    if (!within && spoken.length > 8) {
-      // A passage often runs past the end of its section. Anchor on its opening
-      // words instead — highlighting the whole element for every passage inside
-      // it looks like the highlight has stopped moving.
-      within = new SourceMatcher(index.text).find(spoken.slice(0, 8));
-    }
-    const range = within
-      ? rangeFromOffsets(index, within.from, within.to)
-      : rangeFromOffsets(index, 0, index.text.length);
+    const startIndex = buildTextIndex(startElement);
+    const head = new SourceMatcher(startIndex.text).find(spoken.slice(0, 6));
+    const startOffset = head ? head.from : 0;
+
+    const sameElement = startElement === endElement;
+    const endIndex = sameElement ? startIndex : buildTextIndex(endElement);
+    const tail = new SourceMatcher(endIndex.text).find(spoken.slice(-6));
+    const endOffset = tail ? tail.to : endIndex.text.length;
+
+    const range = sameElement
+      ? rangeFromOffsets(
+          startIndex,
+          startOffset,
+          Math.max(endOffset, startOffset + 1),
+        )
+      : rangeAcross(startIndex, startOffset, endIndex, endOffset);
     if (!range) {
       this.diagnostics.record(
         "locate",
-        `line ${line}: could not build a range`,
+        `lines ${startLine}-${endLine}: could not build a range`,
       );
       this.clearHighlights(registry);
       return;
     }
     this.diagnostics.record(
       "locate",
-      `painted line ${line}${within ? "" : " (whole section)"}`,
+      `painted lines ${startLine}-${endLine}${sameElement ? "" : " (spanning sections)"}`,
     );
 
-    this.passageElement = element;
-    this.passageWithin = within ?? { from: 0, to: index.text.length };
+    // Word tracking needs one element to index; a passage spanning sections is
+    // left with the passage highlight alone rather than a wrong word marker.
+    this.passageElement = sameElement ? startElement : undefined;
+    this.passageWithin = sameElement
+      ? { from: startOffset, to: Math.max(endOffset, startOffset + 1) }
+      : null;
     this.wordMatcher = undefined;
     registry.set(PASSAGE_HIGHLIGHT, new Highlight(range));
     registry.delete(WORD_HIGHLIGHT);
