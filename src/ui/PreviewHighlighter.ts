@@ -264,7 +264,7 @@ export class PreviewHighlighter {
     registry.set(PASSAGE_HIGHLIGHT, new Highlight(range));
     registry.delete(WORD_HIGHLIGHT);
     this.painted = true;
-    this.scrollTo(range);
+    this.scrollTo(range, startElement);
   }
 
   private clearHighlights(registry: HighlightRegistry): void {
@@ -280,14 +280,19 @@ export class PreviewHighlighter {
   }
 
   /**
-   * Scroll to the range, and only when it is off screen. Called on a passage
-   * change only: scrolling in response to anything more frequent makes Reading
-   * view render more, which is the feedback loop that caused flickering.
+   * Scroll the range into view.
+   *
+   * The scrolling element is found by walking up from the highlighted text
+   * rather than assumed: which element actually scrolls differs between
+   * Obsidian's layouts, and deriving it from state that a spanning passage does
+   * not set meant those passages never scrolled at all — the view lurched on
+   * some passages and sat still on others.
+   *
+   * Called on a passage change only. Scrolling in response to anything more
+   * frequent makes Reading view render more, which feeds back into scrolling.
    */
-  private scrollTo(range: Range): void {
-    const scroller = this.passageElement?.closest(
-      ".markdown-preview-view",
-    ) as HTMLElement | null;
+  private scrollTo(range: Range, anchor: HTMLElement): void {
+    const scroller = findScroller(anchor);
     if (!scroller) {
       return;
     }
@@ -296,16 +301,32 @@ export class PreviewHighlighter {
       return;
     }
     const view = scroller.getBoundingClientRect();
-    if (
-      rect.top >= view.top + view.height * 0.15 &&
-      rect.bottom <= view.top + view.height * 0.8
-    ) {
+    // Mobile puts a toolbar over the bottom of the view, so treat the lower
+    // strip as not visible rather than leaving text to be read underneath it.
+    const top = view.top + view.height * 0.12;
+    const bottom = view.top + view.height * 0.72;
+    if (rect.top >= top && rect.bottom <= bottom) {
       return;
     }
-    const delta = rect.top - (view.top + view.height * 0.33);
+    const delta = rect.top - (view.top + view.height * 0.3);
     if (Math.abs(delta) < 8) {
       return;
     }
     scroller.scrollBy({ top: delta, behavior: "auto" });
   }
+}
+
+/** The nearest ancestor that actually scrolls, starting from `el` itself. */
+function findScroller(el: HTMLElement): HTMLElement | null {
+  let node: HTMLElement | null = el;
+  while (node) {
+    const style = getComputedStyle(node);
+    const scrollable =
+      style.overflowY === "auto" || style.overflowY === "scroll";
+    if (scrollable && node.scrollHeight > node.clientHeight + 1) {
+      return node;
+    }
+    node = node.parentElement;
+  }
+  return null;
 }

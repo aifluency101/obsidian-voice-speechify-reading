@@ -70,6 +70,12 @@ export class FollowAlongHighlighter {
       "start",
       `getMode=${viewMode} chose=${this.mode ?? "none"} file=${view.file?.path ?? "?"}`,
     );
+    // Lets the stylesheet add room below the note while reading, so the closing
+    // lines can still be scrolled clear of the mobile toolbar. Both view modes
+    // need it; it used to be added only on the editor path.
+    if (this.mode !== null) {
+      activeDocument.body.addClass("voice-is-reading");
+    }
 
     // Only complain once it is clearly not going to settle: the first passages
     // routinely arrive before the view mode and the rendered sections have.
@@ -122,6 +128,7 @@ export class FollowAlongHighlighter {
 
   stop(): void {
     this.clear();
+    activeDocument.body.removeClass("voice-is-reading");
     this.mode = null;
     this.failedStarts = 0;
   }

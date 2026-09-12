@@ -1257,6 +1257,7 @@
 /* Obsidian's mobile toolbar sits over the bottom of the note, so the last lines
    can never be scrolled into comfortable view while following along. Add room
    below the text for the duration of a reading pass only. */
-body.voice-is-reading.is-mobile .markdown-source-view.mod-cm6 .cm-content {
+body.voice-is-reading.is-mobile .markdown-source-view.mod-cm6 .cm-content,
+body.voice-is-reading.is-mobile .markdown-preview-view .markdown-preview-sizer {
   padding-bottom: 50vh;
 }

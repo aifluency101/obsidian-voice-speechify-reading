@@ -109,9 +109,6 @@ export class ReadingHighlighter {
     this.passage = null;
     this.wordMatcher = undefined;
     this.currentPassageText = "";
-    // Lets the stylesheet add room below the note while reading, so the last
-    // lines can still be scrolled clear of the mobile toolbar.
-    activeDocument.body.addClass("voice-is-reading");
     this.render();
     return true;
   }
@@ -162,7 +159,6 @@ export class ReadingHighlighter {
     this.wordMatcher = undefined;
     this.currentPassageText = "";
     this.painted = false;
-    activeDocument.body.removeClass("voice-is-reading");
     this.render();
   }
 
