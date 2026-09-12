@@ -14,19 +14,32 @@ import {
  * a DOM Range registered under a name and styled with ::highlight(), which
  * paints without touching the DOM Obsidian owns and re-renders.
  *
- * Deliberately coarser than the editor path — passage only, no word tracking:
+ * The hard part is that Reading view renders sections lazily as you scroll, so
+ * the DOM moves underneath any position we hold. Chasing it does not work — an
+ * earlier version observed mutations and re-located on each one, and since
+ * locating scrolls and scrolling renders, that loop never settled and left the
+ * view flickering until the app was force-closed.
  *
- * Reading view renders sections lazily as you scroll, so any attempt to keep up
- * with the words means re-reading the DOM constantly, and anything that scrolls
- * in response to a DOM change feeds back into more rendering. An earlier version
- * observed mutations and re-located on each one; that loop could not settle and
- * left the view flickering until the app was force-closed.
+ * Instead the note is rendered in full *before* reading starts, via the preview
+ * renderer's `showAll` flag (undocumented, so feature-detected and restored
+ * afterwards). With the DOM stationary the index stays valid, and word-level
+ * tracking is safe because scrolling no longer causes rendering.
  *
- * So: the index is rebuilt only when the engine moves to a new passage, the view
- * is scrolled only then, and nothing here reacts to the DOM changing by itself.
+ * When that flag is unavailable the class degrades deliberately: passages only,
+ * no word tracking, since that is what was making the lazy DOM churn.
  */
 
 const PASSAGE_HIGHLIGHT = "voice-reading-passage";
+const WORD_HIGHLIGHT = "voice-reading-word";
+
+/** The preview renderer's virtualisation switch. Not in the public typings. */
+interface PreviewRenderer {
+  showAll?: boolean;
+}
+interface PreviewInternals {
+  renderer?: PreviewRenderer;
+  rerender?: (full?: boolean) => void;
+}
 
 /** `Highlight` and `CSS.highlights` are newer than the TS DOM lib in use. */
 interface HighlightRegistry {
@@ -48,8 +61,14 @@ export class PreviewHighlighter {
   private index?: TextIndex;
   private matcher?: SourceMatcher;
   private currentPassage = "";
+  private passageRange: { from: number; to: number } | null = null;
+  private wordMatcher?: SourceMatcher;
   private painted = false;
   private warnedUnsupported = false;
+  /** the note is rendered whole, so positions hold and words can be tracked */
+  private fullyRendered = false;
+  private renderer?: PreviewRenderer;
+  private previousShowAll?: boolean;
 
   /**
    * True only once a highlight has actually been painted. Finding a container
@@ -82,8 +101,53 @@ export class PreviewHighlighter {
     this.index = undefined;
     this.matcher = undefined;
     this.currentPassage = "";
+    this.passageRange = null;
+    this.wordMatcher = undefined;
     this.painted = false;
+    this.fullyRendered = this.forceFullRender(view);
     return true;
+  }
+
+  /**
+   * Ask the preview renderer to stop virtualising and lay the whole note out.
+   *
+   * `showAll` is not in the public typings, so it is feature-detected and the
+   * previous value restored when reading stops — Obsidian goes back to
+   * rendering only what is on screen. Returns false if the flag is not there,
+   * in which case the caller runs in the coarser, lazy-DOM-safe mode.
+   */
+  private forceFullRender(view: MarkdownView): boolean {
+    const preview = view.previewMode as unknown as PreviewInternals;
+    const renderer = preview?.renderer;
+    if (!renderer || typeof renderer.showAll !== "boolean") {
+      return false;
+    }
+    try {
+      this.renderer = renderer;
+      this.previousShowAll = renderer.showAll;
+      if (!renderer.showAll) {
+        renderer.showAll = true;
+        preview.rerender?.(true);
+      }
+      return true;
+    } catch {
+      this.renderer = undefined;
+      this.previousShowAll = undefined;
+      return false;
+    }
+  }
+
+  private restoreRendering(): void {
+    if (this.renderer && this.previousShowAll !== undefined) {
+      try {
+        this.renderer.showAll = this.previousShowAll;
+      } catch {
+        // the view may already be gone; nothing to restore onto
+      }
+    }
+    this.renderer = undefined;
+    this.previousShowAll = undefined;
+    this.fullyRendered = false;
   }
 
   setPassage(spokenPassage: string): void {
@@ -97,15 +161,56 @@ export class PreviewHighlighter {
     this.locate(spokenPassage, previous);
   }
 
-  /** Word tracking is not attempted in Reading view — see the class comment. */
-  setWord(_word: string): void {}
+  /**
+   * Only attempted once the note is laid out in full — otherwise following the
+   * words means re-reading a DOM that is still moving.
+   */
+  setWord(word: string): void {
+    const registry = highlightRegistry();
+    if (
+      !this.fullyRendered ||
+      !registry ||
+      !Highlight ||
+      !this.index ||
+      !this.passageRange ||
+      !word
+    ) {
+      return;
+    }
+    // One matcher per passage, advanced word by word: rebuilding it per word
+    // would restart at the passage's beginning and keep re-finding the first
+    // occurrence of a repeated word.
+    if (!this.wordMatcher) {
+      this.wordMatcher = new SourceMatcher(
+        this.index.text.slice(this.passageRange.from, this.passageRange.to),
+      );
+    }
+    const within = this.wordMatcher.find(tokenizeSpoken(word));
+    if (!within) {
+      return;
+    }
+    const range = rangeFromOffsets(
+      this.index,
+      this.passageRange.from + within.from,
+      this.passageRange.from + within.to,
+    );
+    if (!range) {
+      return;
+    }
+    registry.set(WORD_HIGHLIGHT, new Highlight(range));
+  }
 
   stop(): void {
-    highlightRegistry()?.delete(PASSAGE_HIGHLIGHT);
+    const registry = highlightRegistry();
+    registry?.delete(PASSAGE_HIGHLIGHT);
+    registry?.delete(WORD_HIGHLIGHT);
+    this.restoreRendering();
     this.container = undefined;
     this.index = undefined;
     this.matcher = undefined;
     this.currentPassage = "";
+    this.passageRange = null;
+    this.wordMatcher = undefined;
     this.painted = false;
   }
 
@@ -140,13 +245,19 @@ export class PreviewHighlighter {
     const range = found
       ? rangeFromOffsets(this.index, found.from, found.to)
       : null;
-    if (!range) {
+    if (!range || !found) {
       // Better no highlight than one left over the wrong text.
       registry.delete(PASSAGE_HIGHLIGHT);
+      registry.delete(WORD_HIGHLIGHT);
+      this.passageRange = null;
+      this.wordMatcher = undefined;
       return;
     }
 
+    this.passageRange = found;
+    this.wordMatcher = undefined;
     registry.set(PASSAGE_HIGHLIGHT, new Highlight(range));
+    registry.delete(WORD_HIGHLIGHT);
     this.painted = true;
     this.scrollTo(range);
   }
