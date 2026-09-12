@@ -1,6 +1,7 @@
 import { MarkdownView, Notice, type App } from "obsidian";
 import { ReadingHighlighter } from "./ReadingHighlight";
 import { PreviewHighlighter } from "./PreviewHighlighter";
+import type { PreviewSectionRegistry } from "./previewSections";
 
 /**
  * Routes follow-along highlighting to whichever mechanism the note is using.
@@ -21,9 +22,12 @@ export class FollowAlongHighlighter {
   private warnedUnsupported = false;
   private attempts = 0;
 
-  constructor(private app: App) {
+  constructor(
+    private app: App,
+    sections: PreviewSectionRegistry,
+  ) {
     this.editor = new ReadingHighlighter(app);
-    this.preview = new PreviewHighlighter();
+    this.preview = new PreviewHighlighter(sections);
   }
 
   /**

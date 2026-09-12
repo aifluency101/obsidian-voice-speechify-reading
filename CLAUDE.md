@@ -133,13 +133,18 @@ orchestrators pick the path by `inputFormat`:
   neither works in both modes: Editing view is a CodeMirror document and takes
   decorations, Reading view is rendered HTML and takes CSS Custom Highlight
   ranges. Decided once per pass (`view.getMode()`).
+- `previewSections.ts` — the Reading-view position source. A markdown
+  post-processor records each rendered section against the source lines
+  `ctx.getSectionInfo()` reports, so the element↔source mapping is Obsidian's
+  and is re-supplied on every re-render. Pure line helpers are unit-tested.
 - `PreviewHighlighter.ts` — Reading view highlighting via the **CSS Custom
-  Highlight API** (`CSS.highlights` + `::highlight()`), which paints ranges
-  without mutating the DOM Obsidian owns and re-renders. Reading view renders
-  only sections near the viewport, so the flattened text index is rebuilt per
-  passage and a miss is retried once after scrolling has had a chance to mount
-  more of the note. Matching is _more_ reliable here than in Editing view: the
-  rendered text is what gets spoken, with no markup or link targets in the way.
+  Highlight API** (`CSS.highlights` + `::highlight()`). Resolves position as
+  spoken passage → markdown source → source line → section element → range
+  inside that one element. Only the last step touches the DOM, which is why
+  lazy rendering no longer matters. **Do not reintroduce DOM scanning or a
+  MutationObserver here** — an observer that re-located on DOM changes fed its
+  own scrolling back into Reading view's rendering and flickered until the app
+  was force-closed.
 - `domTextIndex.ts` — **pure** helpers that flatten a rendered subtree's text
   nodes into one string plus an offset table, and map an offset back to
   (node, offset) by binary search so a DOM `Range` can be built. Unit-tested

@@ -5,6 +5,7 @@ import type { SpeechProvider } from "../service/SpeechProvider";
 import { createSpeechProvider } from "../service/SpeechProviderFactory";
 import { readingHighlightField, wordAt } from "../ui/ReadingHighlight";
 import { FollowAlongHighlighter } from "../ui/FollowAlong";
+import { PreviewSectionRegistry } from "../ui/previewSections";
 import { ViewHeaderAction } from "../ui/ViewHeaderAction";
 import { Plugin, Platform, Notice } from "obsidian";
 import { MarkdownHelper } from "./MarkdownHelper";
@@ -22,6 +23,7 @@ export class Voice extends Plugin {
   public iconEventHandler: IconEventHandler;
   private textSpeaker: TextSpeaker;
   private readingHighlighter: FollowAlongHighlighter;
+  private previewSections = new PreviewSectionRegistry();
   private viewHeaderAction: ViewHeaderAction;
   /** last passage reported by the provider, for follow-along highlighting */
   private lastSpokenIndex = -1;
@@ -32,8 +34,17 @@ export class Voice extends Plugin {
     this.addSettingTab(new VoiceSettingTab(this.app, this));
     this.markdownHelper = new MarkdownHelper(this.app);
 
-    this.readingHighlighter = new FollowAlongHighlighter(this.app);
+    this.readingHighlighter = new FollowAlongHighlighter(
+      this.app,
+      this.previewSections,
+    );
     this.registerEditorExtension(readingHighlightField);
+    // Obsidian calls this once per section as Reading view renders it, and the
+    // context maps that element back to the source lines it came from. That is
+    // how follow-along finds its place without reading the rendered DOM.
+    this.registerMarkdownPostProcessor((element, context) => {
+      this.previewSections.record(element, context);
+    });
     this.viewHeaderAction = new ViewHeaderAction(this);
 
     this.speechProvider = createSpeechProvider(this.settings);
