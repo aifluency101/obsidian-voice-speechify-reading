@@ -1148,6 +1148,19 @@
   letter-spacing: 0.04em;
 }
 
+/* Follow-along highlighting in Reading view. Rendered HTML has no CodeMirror
+   document to decorate, so ranges are painted with the CSS Custom Highlight API
+   (Safari 17.2+), which styles them without touching Obsidian's own DOM.
+   Only paint properties are permitted on ::highlight() — layout must not move. */
+::highlight(voice-reading-passage) {
+  background-color: var(--text-selection);
+}
+
+::highlight(voice-reading-word) {
+  background-color: var(--text-highlight-bg);
+  color: var(--text-normal);
+}
+
 /* Follow-along highlighting while a note is read aloud. The passage uses a
    subdued wash so it reads as context, and the current word a stronger accent
    so the eye can track it. Both inherit theme colours rather than hard-coding. */

@@ -3,11 +3,8 @@ import { VoiceSettingTab } from "../settings/VoiceSettingTab";
 import { HotkeySettings } from "../settings/HotkeySettings";
 import type { SpeechProvider } from "../service/SpeechProvider";
 import { createSpeechProvider } from "../service/SpeechProviderFactory";
-import {
-  ReadingHighlighter,
-  readingHighlightField,
-  wordAt,
-} from "../ui/ReadingHighlight";
+import { readingHighlightField, wordAt } from "../ui/ReadingHighlight";
+import { FollowAlongHighlighter } from "../ui/FollowAlong";
 import { ViewHeaderAction } from "../ui/ViewHeaderAction";
 import { Plugin, Platform, Notice } from "obsidian";
 import { MarkdownHelper } from "./MarkdownHelper";
@@ -24,7 +21,7 @@ export class Voice extends Plugin {
   private hotkeySettings: HotkeySettings;
   public iconEventHandler: IconEventHandler;
   private textSpeaker: TextSpeaker;
-  private readingHighlighter: ReadingHighlighter;
+  private readingHighlighter: FollowAlongHighlighter;
   private viewHeaderAction: ViewHeaderAction;
   /** last passage reported by the provider, for follow-along highlighting */
   private lastSpokenIndex = -1;
@@ -35,7 +32,7 @@ export class Voice extends Plugin {
     this.addSettingTab(new VoiceSettingTab(this.app, this));
     this.markdownHelper = new MarkdownHelper(this.app);
 
-    this.readingHighlighter = new ReadingHighlighter(this.app);
+    this.readingHighlighter = new FollowAlongHighlighter(this.app);
     this.registerEditorExtension(readingHighlightField);
     this.viewHeaderAction = new ViewHeaderAction(this);
 

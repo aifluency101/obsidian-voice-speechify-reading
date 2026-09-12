@@ -1,8 +1,9 @@
 # Obsidian Voice Plugin 🔊
 
 > **Unofficial fork of [Voice](https://github.com/chrisurf/obsidian-voice) (MIT, by Chris Oguntolu) that adds [Speechify](https://speechify.com/text-to-speech-api/) as a text-to-speech provider.**
-> It ships under the plugin id `voice-speechify`, so it installs alongside the original rather than replacing it. Install it with [BRAT](https://github.com/TfTHacker/obsidian42-brat).
-> Everything below is the upstream README, updated where Speechify is relevant.
+> **Experimental sibling of [obsidian-voice-speechify](https://github.com/aifluency101/obsidian-voice-speechify)** — everything that fork has, plus follow-along highlighting that also works in **Reading view**, not just Editing view.
+> It ships under the plugin id `voice-speechify-reading`, so it installs alongside both the original and the sibling fork. Install it with [BRAT](https://github.com/TfTHacker/obsidian42-brat).
+> Everything below is the upstream README, updated where these additions are relevant.
 
 ![Obsidian Voice — listen to your notes in natural, lifelike speech with AWS Polly, ElevenLabs, Google Cloud, Azure Speech, OpenAI, or MiniMax](./assets/hero.png)
 
@@ -252,7 +253,7 @@ Start with the provider you already have — you can switch anytime.
 
 **On-device** — Nothing to connect. This is also the one provider that **highlights the note as it reads**: the passage being spoken is marked, the current word within it is tracked from the engine's word-boundary events, and the note scrolls to follow along. Choose **On-device (no account)** in **Settings → Voice** and pick a voice in the player. It speaks through your operating system's own engine, free and offline. On iOS add or upgrade voices under **Settings → Accessibility → Spoken Content → Voices** — the Enhanced and Premium downloads sound considerably better than the defaults. Siri's voices are not available to apps.
 
-Highlighting works in Source/Live Preview, not Reading view, and positions are matched by content — the spoken text has been through the markdown pipeline, so a heavily formatted passage can occasionally highlight loosely and resync on the next sentence.
+Highlighting works in **all three view modes**. Editing view (Source and Live Preview) is highlighted with CodeMirror decorations; Reading view is rendered HTML with no editor behind it, so it is highlighted with the CSS Custom Highlight API instead (Safari 17.2+/Chrome 105+). Positions are matched by content — the spoken text has been through the markdown pipeline, so a heavily formatted passage can occasionally highlight loosely and resync on the next sentence.
 
 This provider plays audio but never produces an audio file, so **saving MP3s and the chapter list do not work with it**, and playback stops when the device sleeps or Obsidian goes to the background. The scrubber runs on an estimated timeline rather than real audio, so the position is approximate and dragging it jumps to the nearest chunk of text — as do rewind and fast-forward. That is a limitation of the browser speech API, not of the plugin; use a cloud provider when you want a saved recording or exact seeking.
 

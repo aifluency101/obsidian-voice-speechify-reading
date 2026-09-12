@@ -129,7 +129,22 @@ orchestrators pick the path by `inputFormat`:
   down): a header tap does not necessarily activate its leaf, and both the text
   read and the editor highlighted resolve from the _active_ view. The "speaking" state swaps the
   icon for CSS-animated bars — an activity indicator, not an amplitude meter.
-- `ReadingHighlight.ts` — follow-along highlighting. A CodeMirror `StateField`
+- `FollowAlong.ts` — picks the highlighting mechanism per reading pass, since
+  neither works in both modes: Editing view is a CodeMirror document and takes
+  decorations, Reading view is rendered HTML and takes CSS Custom Highlight
+  ranges. Decided once per pass (`view.getMode()`).
+- `PreviewHighlighter.ts` — Reading view highlighting via the **CSS Custom
+  Highlight API** (`CSS.highlights` + `::highlight()`), which paints ranges
+  without mutating the DOM Obsidian owns and re-renders. Reading view renders
+  only sections near the viewport, so the flattened text index is rebuilt per
+  passage and a miss is retried once after scrolling has had a chance to mount
+  more of the note. Matching is _more_ reliable here than in Editing view: the
+  rendered text is what gets spoken, with no markup or link targets in the way.
+- `domTextIndex.ts` — **pure** helpers that flatten a rendered subtree's text
+  nodes into one string plus an offset table, and map an offset back to
+  (node, offset) by binary search so a DOM `Range` can be built. Unit-tested
+  without a DOM.
+- `ReadingHighlight.ts` — Editing view follow-along highlighting. A CodeMirror `StateField`
   marks the passage being spoken and the word inside it; `ReadingHighlighter`
   resolves those positions, dispatches into whichever editor shows the note, and
   scrolls to follow — the passage centred, the word only when it leaves view.
