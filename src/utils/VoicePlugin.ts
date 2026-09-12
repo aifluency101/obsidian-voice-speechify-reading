@@ -6,8 +6,16 @@ import { createSpeechProvider } from "../service/SpeechProviderFactory";
 import { readingHighlightField, wordAt } from "../ui/ReadingHighlight";
 import { FollowAlongHighlighter } from "../ui/FollowAlong";
 import { PreviewSectionRegistry } from "../ui/previewSections";
+import { FollowAlongDiagnostics } from "./followAlongDiagnostics";
 import { ViewHeaderAction } from "../ui/ViewHeaderAction";
-import { Plugin, Platform, Notice } from "obsidian";
+import {
+  Plugin,
+  Platform,
+  Notice,
+  TFile,
+  MarkdownView,
+  apiVersion,
+} from "obsidian";
 import { MarkdownHelper } from "./MarkdownHelper";
 import { IconEventHandler } from "./IconEventHandler";
 import { TextSpeaker } from "./TextSpeaker";
@@ -24,6 +32,7 @@ export class Voice extends Plugin {
   private textSpeaker: TextSpeaker;
   private readingHighlighter: FollowAlongHighlighter;
   private previewSections = new PreviewSectionRegistry();
+  private followAlongDiagnostics = new FollowAlongDiagnostics();
   private viewHeaderAction: ViewHeaderAction;
   /** last passage reported by the provider, for follow-along highlighting */
   private lastSpokenIndex = -1;
@@ -37,6 +46,7 @@ export class Voice extends Plugin {
     this.readingHighlighter = new FollowAlongHighlighter(
       this.app,
       this.previewSections,
+      this.followAlongDiagnostics,
     );
     this.registerEditorExtension(readingHighlightField);
     // Obsidian calls this once per section as Reading view renders it, and the
@@ -44,6 +54,15 @@ export class Voice extends Plugin {
     // how follow-along finds its place without reading the rendered DOM.
     this.registerMarkdownPostProcessor((element, context) => {
       this.previewSections.record(element, context);
+    });
+
+    // There is no console on a phone, so the trace is written into the vault.
+    this.addCommand({
+      id: "write-follow-along-diagnostics",
+      name: "Write follow-along diagnostics to a note",
+      callback: () => {
+        void this.writeFollowAlongDiagnostics();
+      },
     });
     this.viewHeaderAction = new ViewHeaderAction(this);
 
@@ -373,6 +392,29 @@ export class Voice extends Plugin {
     // The player replaces the compact mobile bar; hide the bar so they are
     // never shown at the same time (e.g. when toggling from the navbar).
     this.iconEventHandler.hideMobileControlBar();
+  }
+
+  /** Dump the follow-along trace into the vault so it can be read or shared. */
+  private async writeFollowAlongDiagnostics(): Promise<void> {
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    const environment = [
+      `Obsidian ${apiVersion}`,
+      `plugin ${this.manifest.version}`,
+      `mobile: ${Platform.isMobile}`,
+      `CSS.highlights: ${typeof (CSS as unknown as { highlights?: unknown }).highlights}`,
+      `active note: ${view?.file?.path ?? "none"}`,
+      `active view mode: ${view?.getMode() ?? "none"}`,
+      `events captured: ${this.followAlongDiagnostics.count}`,
+    ];
+    const path = "voice-follow-along-diagnostics.md";
+    const body = this.followAlongDiagnostics.report(environment);
+    const existing = this.app.vault.getAbstractFileByPath(path);
+    if (existing instanceof TFile) {
+      await this.app.vault.modify(existing, body);
+    } else {
+      await this.app.vault.create(path, body);
+    }
+    new Notice(`Voice: diagnostics written to ${path}`, 5000);
   }
 
   public getSpeechProvider(): SpeechProvider {

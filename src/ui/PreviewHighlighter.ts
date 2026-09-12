@@ -2,6 +2,7 @@ import { MarkdownView, Notice } from "obsidian";
 import { SourceMatcher, tokenizeSpoken } from "../utils/sourceWords";
 import { buildTextIndex, rangeFromOffsets } from "./domTextIndex";
 import { lineOfOffset, type PreviewSectionRegistry } from "./previewSections";
+import type { FollowAlongDiagnostics } from "../utils/followAlongDiagnostics";
 
 /**
  * Follow-along highlighting in Reading view.
@@ -52,7 +53,10 @@ export class PreviewHighlighter {
   private passageWithin: { from: number; to: number } | null = null;
   private wordMatcher?: SourceMatcher;
 
-  constructor(private sections: PreviewSectionRegistry) {}
+  constructor(
+    private sections: PreviewSectionRegistry,
+    private diagnostics: FollowAlongDiagnostics,
+  ) {}
 
   /** True only once a highlight has actually been painted. */
   get isActive(): boolean {
@@ -61,6 +65,10 @@ export class PreviewHighlighter {
 
   start(view: MarkdownView): boolean {
     if (!highlightRegistry()) {
+      this.diagnostics.record(
+        "preview",
+        `no CSS.highlights (CSS.highlights=${typeof (CSS as unknown as { highlights?: unknown }).highlights}, Highlight=${typeof Highlight})`,
+      );
       if (!this.warnedUnsupported) {
         this.warnedUnsupported = true;
         new Notice(
@@ -74,8 +82,16 @@ export class PreviewHighlighter {
     this.source = view.getViewData();
     this.sourcePath = view.file?.path ?? "";
     if (!this.source || !this.sourcePath) {
+      this.diagnostics.record(
+        "preview",
+        `no source (chars=${this.source.length}, path=${this.sourcePath || "none"})`,
+      );
       return false;
     }
+    this.diagnostics.record(
+      "preview",
+      `ready chars=${this.source.length} sections=${this.sections.sections(this.sourcePath).length}`,
+    );
     this.matcher = new SourceMatcher(this.source);
     this.currentPassage = "";
     this.painted = false;
@@ -154,6 +170,10 @@ export class PreviewHighlighter {
     // 1. Where is this passage in the markdown?
     const inSource = this.matcher.find(tokenizeSpoken(spokenPassage));
     if (!inSource) {
+      this.diagnostics.record(
+        "locate",
+        `no source match for "${spokenPassage.slice(0, 40)}"`,
+      );
       this.clearHighlights(registry);
       return;
     }
@@ -162,6 +182,10 @@ export class PreviewHighlighter {
     const line = lineOfOffset(this.source, inSource.from);
     const element = this.sections.elementForLine(this.sourcePath, line);
     if (!element) {
+      this.diagnostics.record(
+        "locate",
+        `line ${line} not in any rendered section (sections=${this.sections.sections(this.sourcePath).length})`,
+      );
       // Not rendered (or not on screen). Leave the note alone rather than
       // highlighting the wrong thing; the next passage will try again.
       this.clearHighlights(registry);
@@ -179,9 +203,17 @@ export class PreviewHighlighter {
         // the reader oriented rather than dropping the highlight entirely.
         rangeFromOffsets(index, 0, index.text.length);
     if (!range) {
+      this.diagnostics.record(
+        "locate",
+        `line ${line}: could not build a range`,
+      );
       this.clearHighlights(registry);
       return;
     }
+    this.diagnostics.record(
+      "locate",
+      `painted line ${line}${within ? "" : " (whole section)"}`,
+    );
 
     this.passageElement = element;
     this.passageWithin = within ?? { from: 0, to: index.text.length };

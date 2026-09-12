@@ -2,6 +2,7 @@ import { MarkdownView, Notice, type App } from "obsidian";
 import { ReadingHighlighter } from "./ReadingHighlight";
 import { PreviewHighlighter } from "./PreviewHighlighter";
 import type { PreviewSectionRegistry } from "./previewSections";
+import type { FollowAlongDiagnostics } from "../utils/followAlongDiagnostics";
 
 /**
  * Routes follow-along highlighting to whichever mechanism the note is using.
@@ -22,9 +23,10 @@ export class FollowAlongHighlighter {
   constructor(
     private app: App,
     sections: PreviewSectionRegistry,
+    private diagnostics: FollowAlongDiagnostics,
   ) {
     this.editor = new ReadingHighlighter(app);
-    this.preview = new PreviewHighlighter(sections);
+    this.preview = new PreviewHighlighter(sections, diagnostics);
   }
 
   /**
@@ -53,15 +55,21 @@ export class FollowAlongHighlighter {
       this.app.workspace.getActiveViewOfType(MarkdownView) ??
       this.markdownViewForFile(this.app.workspace.getActiveFile()?.path);
     if (!view) {
+      this.diagnostics.record("start", "no markdown view resolved");
       this.mode = null;
       return;
     }
 
-    if (view.getMode() === "preview") {
+    const viewMode = view.getMode();
+    if (viewMode === "preview") {
       this.mode = this.preview.start(view) ? "preview" : null;
     } else {
       this.mode = this.editor.start(view) ? "editor" : null;
     }
+    this.diagnostics.record(
+      "start",
+      `getMode=${viewMode} chose=${this.mode ?? "none"} file=${view.file?.path ?? "?"}`,
+    );
 
     // Only complain once it is clearly not going to settle: the first passages
     // routinely arrive before the view mode and the rendered sections have.
