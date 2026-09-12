@@ -92,10 +92,20 @@ export function buildTextIndex(root: Element): TextIndex {
 
   const entries: TextIndexEntry[] = [];
   let text = "";
+  let previousBlock: Element | null = null;
   let current = walker.nextNode() as Text | null;
   while (current) {
     const value = current.data;
     if (value.length > 0) {
+      // Without a separator the last word of one block and the first of the
+      // next are glued into a single token ("CategoriesMinaj"), which forces the
+      // matcher to skip and lets a passage balloon across several paragraphs.
+      const block = blockOf(current);
+      if (previousBlock !== null && block !== previousBlock) {
+        text += "\n";
+      }
+      previousBlock = block;
+
       entries.push({
         node: current,
         start: text.length,
@@ -106,6 +116,14 @@ export function buildTextIndex(root: Element): TextIndex {
     current = walker.nextNode() as Text | null;
   }
   return { text, entries };
+}
+
+const BLOCK_SELECTOR =
+  "p, div, li, h1, h2, h3, h4, h5, h6, td, th, blockquote, pre, figcaption, section";
+
+/** The block-level element a text node belongs to, for boundary detection. */
+function blockOf(node: Text): Element | null {
+  return node.parentElement?.closest(BLOCK_SELECTOR) ?? null;
 }
 
 /** Build a DOM Range spanning flattened offsets [from, to). */

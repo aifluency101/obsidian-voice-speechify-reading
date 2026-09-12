@@ -213,6 +213,13 @@ export class SourceMatcher {
     if (ratio < 0.6 || sourceIndex <= start) {
       return null;
     }
+    // ...and require it to be about the right *size*. Skipping is what lets a
+    // match survive markup, but unbounded it will happily swallow several
+    // paragraphs to reach a few scattered words, which then highlights far more
+    // of the note than is being spoken.
+    if (sourceIndex - start > needle.length * 1.5 + 4) {
+      return null;
+    }
     return sourceIndex;
   }
 }

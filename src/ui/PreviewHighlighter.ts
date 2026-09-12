@@ -48,6 +48,7 @@ export class PreviewHighlighter {
   private index?: TextIndex;
   private matcher?: SourceMatcher;
   private passageRange: { from: number; to: number } | null = null;
+  private wordMatcher?: SourceMatcher;
   private lastPassageText = "";
   private warnedUnsupported = false;
   private pendingRetry?: number;
@@ -108,11 +109,15 @@ export class PreviewHighlighter {
     if (!registry || !this.index || !this.passageRange || !word) {
       return;
     }
-    const passageText = this.index.text.slice(
-      this.passageRange.from,
-      this.passageRange.to,
-    );
-    const within = new SourceMatcher(passageText).find(tokenizeSpoken(word));
+    // One matcher for the whole passage, advanced word by word: rebuilding it
+    // per word would restart at the beginning and keep re-finding the first
+    // occurrence of a repeated word instead of the one being spoken.
+    if (!this.wordMatcher) {
+      this.wordMatcher = new SourceMatcher(
+        this.index.text.slice(this.passageRange.from, this.passageRange.to),
+      );
+    }
+    const within = this.wordMatcher.find(tokenizeSpoken(word));
     if (!within) {
       return;
     }
@@ -136,6 +141,7 @@ export class PreviewHighlighter {
     this.container = undefined;
     this.index = undefined;
     this.matcher = undefined;
+    this.wordMatcher = undefined;
     this.passageRange = null;
     this.lastPassageText = "";
   }
@@ -168,6 +174,7 @@ export class PreviewHighlighter {
     }
 
     this.passageRange = found;
+    this.wordMatcher = undefined;
     registry.set(PASSAGE_HIGHLIGHT, new Highlight(range));
     registry.delete(WORD_HIGHLIGHT);
     this.scrollTo(range, "center");

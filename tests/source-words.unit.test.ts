@@ -126,6 +126,38 @@ describe("Unit Tests - Source word alignment", () => {
     expect(source.slice(range!.from, range!.to)).toContain("Scale target");
   });
 
+  test("refuses a match that sprawls far beyond the passage", () => {
+    // The spoken passage is short; the note contains those words scattered
+    // across paragraphs. Skipping must not be allowed to swallow the lot.
+    const source = [
+      "Why it matters: lets the team scale from serving hundreds of customers.",
+      "Example: instead of building a unique service desk automation agent for",
+      "every customer, the team creates one well tested pattern and then adapts",
+      "it for other customers in future engagements across the whole business.",
+    ].join("\n\n");
+    const matcher = new SourceMatcher(source);
+    const range = matcher.find(tokenizeSpoken("customers pattern business"));
+    // Either no match, or one that covers roughly the phrase — never the page.
+    if (range) {
+      expect(range.to - range.from).toBeLessThan(60);
+    }
+  });
+
+  test("still matches a genuine passage of its own length", () => {
+    const source =
+      "Why it matters: Lets the team scale from serving hundreds of customers to 100,000+ customers.";
+    const matcher = new SourceMatcher(source);
+    const range = matcher.find(
+      tokenizeSpoken(
+        "Why it matters: Lets the team scale from serving hundreds of customers",
+      ),
+    );
+    expect(range).not.toBeNull();
+    expect(source.slice(range!.from, range!.to)).toBe(
+      "Why it matters: Lets the team scale from serving hundreds of customers",
+    );
+  });
+
   test("handles empty input safely", () => {
     const matcher = new SourceMatcher("");
     expect(matcher.find(tokenizeSpoken("anything"))).toBeNull();
