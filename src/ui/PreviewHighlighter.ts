@@ -206,13 +206,43 @@ export class PreviewHighlighter {
     }
   }
 
-  private scrollTo(range: Range, block: ScrollLogicalPosition): void {
-    const node = range.startContainer;
-    const element =
-      node.nodeType === Node.ELEMENT_NODE
-        ? (node as Element)
-        : node.parentElement;
-    element?.scrollIntoView({ block, inline: "nearest" });
+  /**
+   * Scroll to the range itself rather than to its element.
+   *
+   * scrollIntoView() works on elements, and a block can be far taller than the
+   * viewport — a paragraph, or a table that has been written on one line — so
+   * centring the element throws the view around while the words being spoken
+   * stay put. Measuring the range keeps the movement proportional to the text.
+   *
+   * "nearest" additionally does nothing while the range sits in a comfortable
+   * band, so following word by word does not scroll on every word.
+   */
+  private scrollTo(range: Range, mode: "center" | "nearest"): void {
+    const scroller = this.container as HTMLElement | undefined;
+    if (!scroller) {
+      return;
+    }
+    const rect = range.getBoundingClientRect();
+    if (rect.height === 0 && rect.width === 0) {
+      return;
+    }
+    const view = scroller.getBoundingClientRect();
+    const comfortableTop = view.top + view.height * 0.2;
+    const comfortableBottom = view.top + view.height * 0.75;
+    if (
+      mode === "nearest" &&
+      rect.top >= comfortableTop &&
+      rect.bottom <= comfortableBottom
+    ) {
+      return;
+    }
+    // Land it a third of the way down: context above, room to read below.
+    const target = view.top + view.height * 0.33;
+    const delta = rect.top - target;
+    if (Math.abs(delta) < 4) {
+      return;
+    }
+    scroller.scrollBy({ top: delta, behavior: "auto" });
   }
 
   private clearRetry(): void {
