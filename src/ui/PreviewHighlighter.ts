@@ -49,9 +49,12 @@ export class PreviewHighlighter {
   private matcher?: SourceMatcher;
   private passageRange: { from: number; to: number } | null = null;
   private wordMatcher?: SourceMatcher;
-  private lastPassageText = "";
+  private currentPassage = "";
   private warnedUnsupported = false;
   private pendingRetry?: number;
+  private indexDirty = true;
+  private observer?: MutationObserver;
+  private relocateTimer?: number;
 
   /** True once a reading pass has a rendered container to work against. */
   get isActive(): boolean {
@@ -82,24 +85,41 @@ export class PreviewHighlighter {
     this.index = undefined;
     this.matcher = undefined;
     this.passageRange = null;
-    this.lastPassageText = "";
-    this.refreshIndex();
+    this.currentPassage = "";
+    this.indexDirty = true;
+
+    // Reading view mounts and unmounts sections as you scroll. That invalidates
+    // both the offsets and any Range already handed to the highlight registry —
+    // a stale Range can resolve onto recycled nodes, which is what paints a
+    // highlight over text that is not being spoken. Re-locate after a change.
+    this.observer = new MutationObserver(() => {
+      this.indexDirty = true;
+      this.scheduleRelocate();
+    });
+    this.observer.observe(container, { childList: true, subtree: true });
+
+    this.refreshIndex(null);
     return true;
   }
 
   setPassage(spokenPassage: string): void {
-    if (!this.container || spokenPassage === this.lastPassageText) {
+    if (!this.container || spokenPassage === this.currentPassage) {
       return;
     }
-    this.lastPassageText = spokenPassage;
+    // The passage being *left* is what seeds the search cursor. Recording the
+    // new one first meant the cursor was advanced past the very passage we were
+    // about to look for, so it was then found later in the note or not at all.
+    const previous = this.currentPassage;
+    this.currentPassage = spokenPassage;
     this.clearRetry();
-    if (!this.locatePassage(spokenPassage)) {
-      // The passage may simply not be rendered yet. Give Obsidian a moment —
-      // our own scrolling is what brings the next sections into existence.
+
+    if (!this.locatePassage(spokenPassage, previous)) {
+      // It may simply not be rendered yet — our own scrolling is what brings
+      // the next sections into existence. Try once more, then give up quietly.
       this.pendingRetry = window.setTimeout(() => {
         this.pendingRetry = undefined;
-        this.refreshIndex(true);
-        this.locatePassage(spokenPassage);
+        this.indexDirty = true;
+        this.locatePassage(spokenPassage, previous);
       }, 250);
     }
   }
@@ -108,6 +128,13 @@ export class PreviewHighlighter {
     const registry = highlightRegistry();
     if (!registry || !this.index || !this.passageRange || !word) {
       return;
+    }
+    if (this.indexDirty) {
+      // Offsets have moved; the passage must be found again before any word
+      // inside it means anything.
+      if (!this.locatePassage(this.currentPassage, null)) {
+        return;
+      }
     }
     // One matcher for the whole passage, advanced word by word: rebuilding it
     // per word would restart at the beginning and keep re-finding the first
@@ -135,41 +162,52 @@ export class PreviewHighlighter {
 
   stop(): void {
     this.clearRetry();
-    const registry = highlightRegistry();
-    registry?.delete(PASSAGE_HIGHLIGHT);
-    registry?.delete(WORD_HIGHLIGHT);
+    if (this.relocateTimer !== undefined) {
+      window.clearTimeout(this.relocateTimer);
+      this.relocateTimer = undefined;
+    }
+    this.observer?.disconnect();
+    this.observer = undefined;
+    this.clearHighlights();
     this.container = undefined;
     this.index = undefined;
     this.matcher = undefined;
     this.wordMatcher = undefined;
     this.passageRange = null;
-    this.lastPassageText = "";
+    this.currentPassage = "";
+    this.indexDirty = true;
   }
 
   /** A seek moved backwards; let the next search start from the top again. */
   rewind(): void {
     this.matcher?.reset();
-    this.lastPassageText = "";
+    this.currentPassage = "";
   }
 
   // --- internals ---
 
-  private locatePassage(spokenPassage: string): boolean {
+  private locatePassage(
+    spokenPassage: string,
+    seedAfter: string | null,
+  ): boolean {
     const registry = highlightRegistry();
-    if (!registry || !Highlight) {
+    if (!registry || !Highlight || !spokenPassage) {
       return false;
     }
-    this.refreshIndex();
+    this.refreshIndex(seedAfter);
     if (!this.index || !this.matcher) {
       return false;
     }
 
     const found = this.matcher.find(tokenizeSpoken(spokenPassage));
-    if (!found) {
-      return false;
-    }
-    const range = rangeFromOffsets(this.index, found.from, found.to);
-    if (!range) {
+    const range = found
+      ? rangeFromOffsets(this.index, found.from, found.to)
+      : null;
+    if (!found || !range) {
+      // Better no highlight than one left over the wrong text.
+      this.clearHighlights();
+      this.passageRange = null;
+      this.wordMatcher = undefined;
       return false;
     }
 
@@ -186,24 +224,47 @@ export class PreviewHighlighter {
    * whenever a section mounts, so the matcher is rebuilt with it and re-seeded
    * to just past the passage we were on, keeping repeated phrases in order.
    */
-  private refreshIndex(force = false): void {
+  private refreshIndex(seedAfter: string | null): void {
     if (!this.container) {
       return;
     }
     const next = buildTextIndex(this.container);
-    const unchanged =
-      !force && this.index !== undefined && this.index.text === next.text;
-    if (unchanged) {
+    if (
+      !this.indexDirty &&
+      this.index !== undefined &&
+      this.index.text === next.text
+    ) {
       return;
     }
 
-    const previousPassage = this.lastPassageText;
     this.index = next;
+    this.indexDirty = false;
     this.matcher = new SourceMatcher(next.text);
-    if (previousPassage) {
-      // Result discarded: this only advances the cursor past where we were.
-      this.matcher.find(tokenizeSpoken(previousPassage));
+    // Offsets have moved, so anything derived from the old text is meaningless.
+    this.passageRange = null;
+    this.wordMatcher = undefined;
+    if (seedAfter) {
+      // Result discarded: this only advances the cursor past where we were, so
+      // a phrase repeated later in the note resolves in reading order.
+      this.matcher.find(tokenizeSpoken(seedAfter));
     }
+  }
+
+  /** Re-find the passage shortly after the rendered DOM settles. */
+  private scheduleRelocate(): void {
+    if (this.relocateTimer !== undefined || !this.currentPassage) {
+      return;
+    }
+    this.relocateTimer = window.setTimeout(() => {
+      this.relocateTimer = undefined;
+      this.locatePassage(this.currentPassage, null);
+    }, 120);
+  }
+
+  private clearHighlights(): void {
+    const registry = highlightRegistry();
+    registry?.delete(PASSAGE_HIGHLIGHT);
+    registry?.delete(WORD_HIGHLIGHT);
   }
 
   /**
