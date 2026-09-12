@@ -12,15 +12,12 @@ import type { PreviewSectionRegistry } from "./previewSections";
  * decided once per reading pass, since changing view mid-note re-renders
  * everything anyway.
  */
-/** How many times setup may be retried before leaving the note alone. */
-const MAX_SETUP_ATTEMPTS = 4;
-
 export class FollowAlongHighlighter {
   private editor: ReadingHighlighter;
   private preview: PreviewHighlighter;
   private mode: "editor" | "preview" | null = null;
   private warnedUnsupported = false;
-  private attempts = 0;
+  private failedStarts = 0;
 
   constructor(
     private app: App,
@@ -36,20 +33,18 @@ export class FollowAlongHighlighter {
    * is what left a whole note reading with nothing highlighted until something
    * unrelated — opening the player — happened to reset the state.
    */
+  /** True once a highlight has actually appeared, not merely once setup ran. */
   get isActive(): boolean {
-    const painted =
-      this.mode === "editor"
-        ? this.editor.isActive
-        : this.mode === "preview"
-          ? this.preview.isActive
-          : false;
-    // Report active once we have given up, so the caller stops re-running setup
-    // on every passage. Retrying forever is churn the note does not need.
-    return painted || this.attempts >= MAX_SETUP_ATTEMPTS;
+    if (this.mode === "editor") {
+      return this.editor.isActive;
+    }
+    if (this.mode === "preview") {
+      return this.preview.isActive;
+    }
+    return false;
   }
 
   start(): void {
-    this.attempts++;
     this.clear();
 
     // Not getActiveViewOfType alone: by the time reading begins the focus may
@@ -68,16 +63,32 @@ export class FollowAlongHighlighter {
       this.mode = this.editor.start(view) ? "editor" : null;
     }
 
-    if (this.mode === null && !this.warnedUnsupported) {
-      this.warnedUnsupported = true;
-      new Notice(
-        "Voice: could not follow along in this note. Try Editing view.",
-        6000,
-      );
+    // Only complain once it is clearly not going to settle: the first passages
+    // routinely arrive before the view mode and the rendered sections have.
+    if (this.mode === null) {
+      this.failedStarts++;
+      if (this.failedStarts >= 5 && !this.warnedUnsupported) {
+        this.warnedUnsupported = true;
+        new Notice(
+          "Voice: could not follow along in this note. Try Editing view.",
+          6000,
+        );
+      }
+    } else {
+      this.failedStarts = 0;
     }
   }
 
   setPassage(passage: string): void {
+    // Re-decide until something is actually highlighted. Two things commonly
+    // are not settled when reading begins: the view's mode (the Reader Mode
+    // plugin switches a note to Reading view after the leaf opens, so an early
+    // reading of getMode() can be stale) and whether Obsidian has rendered any
+    // sections yet. Both resolve within a passage or two, and re-running setup
+    // is cheap now that it no longer touches the DOM.
+    if (!this.isActive) {
+      this.start();
+    }
     if (this.mode === "editor") {
       this.editor.setPassage(passage);
     } else if (this.mode === "preview") {
@@ -104,7 +115,7 @@ export class FollowAlongHighlighter {
   stop(): void {
     this.clear();
     this.mode = null;
-    this.attempts = 0;
+    this.failedStarts = 0;
   }
 
   private clear(): void {
