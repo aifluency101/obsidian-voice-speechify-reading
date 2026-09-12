@@ -65,6 +65,7 @@ export function findSectionForLine<
  */
 export class PreviewSectionRegistry {
   private byPath = new Map<string, SectionEntry[]>();
+  private textByPath = new Map<string, string>();
 
   /** Call from a markdown post-processor. */
   record(element: HTMLElement, ctx: MarkdownPostProcessorContext): void {
@@ -72,6 +73,11 @@ export class PreviewSectionRegistry {
     if (!info) {
       return;
     }
+    // Keep the very text those line numbers index into. Matching against
+    // anything else — the file read back from the view, say — risks a different
+    // line origin: a note with a properties block has its frontmatter counted
+    // in one and not the other, and then every lookup is off by its length.
+    this.textByPath.set(ctx.sourcePath, info.text);
     const entries = this.byPath.get(ctx.sourcePath) ?? [];
     entries.push({
       element,
@@ -114,7 +120,13 @@ export class PreviewSectionRegistry {
     return findSectionForLine(this.sections(path), line)?.element;
   }
 
+  /** The document text that this file's section line numbers refer to. */
+  sourceText(path: string): string | undefined {
+    return this.textByPath.get(path);
+  }
+
   clear(): void {
     this.byPath.clear();
+    this.textByPath.clear();
   }
 }

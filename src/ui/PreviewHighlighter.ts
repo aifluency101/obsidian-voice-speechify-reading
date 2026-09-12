@@ -79,8 +79,18 @@ export class PreviewHighlighter {
       return false;
     }
 
-    this.source = view.getViewData();
     this.sourcePath = view.file?.path ?? "";
+    // Prefer the text Obsidian's own section info is expressed in, so the line
+    // numbers and the match offsets cannot disagree about where line 0 is.
+    const sectionText = this.sections.sourceText(this.sourcePath);
+    const viewText = view.getViewData();
+    this.source = sectionText ?? viewText;
+    if (sectionText && sectionText !== viewText) {
+      this.diagnostics.record(
+        "preview",
+        `using section text (${sectionText.length} chars) not view data (${viewText.length}) — line origins differ`,
+      );
+    }
     if (!this.source || !this.sourcePath) {
       this.diagnostics.record(
         "preview",
@@ -167,6 +177,15 @@ export class PreviewHighlighter {
       return;
     }
 
+    // Sections may only have been recorded after reading began, in which case
+    // we started on the view's text. Adopt theirs as soon as it appears.
+    const sectionText = this.sections.sourceText(this.sourcePath);
+    if (sectionText && sectionText !== this.source) {
+      this.source = sectionText;
+      this.matcher = new SourceMatcher(sectionText);
+      this.diagnostics.record("locate", "re-synced to section text");
+    }
+
     // 1. Where is this passage in the markdown?
     const inSource = this.matcher.find(tokenizeSpoken(spokenPassage));
     if (!inSource) {
@@ -194,14 +213,17 @@ export class PreviewHighlighter {
 
     // 3. Find the passage inside that one section and paint it.
     const index = buildTextIndex(element);
-    const within = new SourceMatcher(index.text).find(
-      tokenizeSpoken(spokenPassage),
-    );
+    const spoken = tokenizeSpoken(spokenPassage);
+    let within = new SourceMatcher(index.text).find(spoken);
+    if (!within && spoken.length > 8) {
+      // A passage often runs past the end of its section. Anchor on its opening
+      // words instead — highlighting the whole element for every passage inside
+      // it looks like the highlight has stopped moving.
+      within = new SourceMatcher(index.text).find(spoken.slice(0, 8));
+    }
     const range = within
       ? rangeFromOffsets(index, within.from, within.to)
-      : // A passage can span sections; falling back to the whole element keeps
-        // the reader oriented rather than dropping the highlight entirely.
-        rangeFromOffsets(index, 0, index.text.length);
+      : rangeFromOffsets(index, 0, index.text.length);
     if (!range) {
       this.diagnostics.record(
         "locate",
