@@ -11,11 +11,15 @@ import { PreviewHighlighter } from "./PreviewHighlighter";
  * decided once per reading pass, since changing view mid-note re-renders
  * everything anyway.
  */
+/** How many times setup may be retried before leaving the note alone. */
+const MAX_SETUP_ATTEMPTS = 4;
+
 export class FollowAlongHighlighter {
   private editor: ReadingHighlighter;
   private preview: PreviewHighlighter;
   private mode: "editor" | "preview" | null = null;
   private warnedUnsupported = false;
+  private attempts = 0;
 
   constructor(private app: App) {
     this.editor = new ReadingHighlighter(app);
@@ -29,16 +33,19 @@ export class FollowAlongHighlighter {
    * unrelated — opening the player — happened to reset the state.
    */
   get isActive(): boolean {
-    if (this.mode === "editor") {
-      return this.editor.isActive;
-    }
-    if (this.mode === "preview") {
-      return this.preview.isActive;
-    }
-    return false;
+    const painted =
+      this.mode === "editor"
+        ? this.editor.isActive
+        : this.mode === "preview"
+          ? this.preview.isActive
+          : false;
+    // Report active once we have given up, so the caller stops re-running setup
+    // on every passage. Retrying forever is churn the note does not need.
+    return painted || this.attempts >= MAX_SETUP_ATTEMPTS;
   }
 
   start(): void {
+    this.attempts++;
     this.clear();
 
     // Not getActiveViewOfType alone: by the time reading begins the focus may
@@ -93,6 +100,7 @@ export class FollowAlongHighlighter {
   stop(): void {
     this.clear();
     this.mode = null;
+    this.attempts = 0;
   }
 
   private clear(): void {
